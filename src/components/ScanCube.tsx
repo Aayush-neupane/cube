@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCubeStore } from '../store/useCubeStore';
 import { FACE_COLORS, Face } from '../cube/types';
-import { RGB, FrameAnalysis, classifyAll, looksLikeCube } from '../cube/colorClassify';
+import { RGB, FrameAnalysis, classifyAll, looksLikeCube, computeOverlayMetrics } from '../cube/colorClassify';
 import { ensureSolver, solveFacelets } from '../cube/externalSolver';
 
 type Phase = 'intro' | 'capture' | 'manual' | 'review' | 'solving';
@@ -70,7 +70,7 @@ function analyzeFrame(video: HTMLVideoElement): FrameAnalysis | null {
   const cells = sampleCells(ctx, toVideo, S, ox, oy, vw, vh);
   if (!cells) return null;
 
-  // Downscaled copy of just the overlay square for global metrics
+  // Downscaled copy of just the overlay square for structural metrics
   const N = 96;
   const small = document.createElement('canvas');
   small.width = N; small.height = N;
@@ -80,17 +80,7 @@ function analyzeFrame(video: HTMLVideoElement): FrameAnalysis | null {
   const [ex, ey] = toVideo(ox + S, oy + S);
   sctx.drawImage(canvas, sx, sy, ex - sx, ey - sy, 0, 0, N, N);
   const px = sctx.getImageData(0, 0, N, N).data;
-  let dark = 0, sum = 0, sumSq = 0;
-  const total = N * N;
-  for (let i = 0; i < px.length; i += 4) {
-    const lum = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
-    if (lum < 80) dark++;
-    sum += lum;
-    sumSq += lum * lum;
-  }
-  const mean = sum / total;
-  const contrast = Math.sqrt(Math.max(0, sumSq / total - mean * mean));
-  return { cells, darkFrac: dark / total, contrast };
+  return { cells, metrics: computeOverlayMetrics(px, N) };
 }
 
 function validateGrid(grid: string[]): string | null {
@@ -236,7 +226,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
         setError(`Could not read the frame (signal ${video.videoWidth}×${video.videoHeight}) — hold still and try again.`);
         return;
       }
-      if (!looksLikeCube(frame)) {
+      if (!looksLikeCube(frame.metrics)) {
         setError('No cube detected — fill the square edge-to-edge with a single cube face, then capture.');
         return;
       }

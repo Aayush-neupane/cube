@@ -4,8 +4,14 @@ export interface RGB { r: number; g: number; b: number; }
 
 export interface FrameAnalysis {
   cells: RGB[];
+  metrics: OverlayMetrics;
+}
+
+export interface OverlayMetrics {
   darkFrac: number; // fraction of overlay pixels that are near-black (grid gaps)
   contrast: number; // std-dev of overlay luminance
+  gridLines: number; // 0..4 internal boundaries that look like dark grid gaps
+  uniformity: number; // mean within-sticker color spread (flat stickers = low)
 }
 
 const SCAN_FACES: Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
@@ -49,10 +55,83 @@ export function classifyAll(samples: RGB[][]): Face[] {
 }
 
 /**
- * True only if the frame plausibly contains a cube face: real cube faces
- * always show dark plastic grid gaps plus strong sticker-vs-gap contrast,
- * while faces, walls and skies do not.
+ * Structural metrics for an N×N RGBA overlay image: global darkness/contrast
+ * plus dark grid lines at exactly the 1/3 and 2/3 boundaries plus sticker
+ * flatness. A real cube face passes all four; faces and rooms cannot fake
+ * straight grid gaps at those exact positions.
  */
-export function looksLikeCube(f: FrameAnalysis): boolean {
-  return f.darkFrac >= 0.07 && f.contrast >= 28;
+export function computeOverlayMetrics(data: ArrayLike<number>, N: number): OverlayMetrics {
+  const lum = new Float64Array(N * N);
+  let dark = 0, sum = 0, sumSq = 0;
+  for (let p = 0; p < N * N; p++) {
+    const l = 0.2126 * data[p * 4] + 0.7152 * data[p * 4 + 1] + 0.0722 * data[p * 4 + 2];
+    lum[p] = l;
+    if (l < 80) dark++;
+    sum += l;
+    sumSq += l * l;
+  }
+  const total = N * N;
+  const mean = sum / total;
+  const contrast = Math.sqrt(Math.max(0, (sumSq / total) - mean * mean));
+
+  // grid gaps: dark bands (±3px) along the four internal boundaries.
+  // A real gap is a STRAIGHT line spanning the square, so we measure the
+  // longest continuous dark run — eyebrows and shadows make short blobs.
+  // isVertical: boundary is a vertical line (x = at), runs extend along y.
+  const B = 3, T = 110, NEED = 0.65;
+  const longestRun = (isVertical: boolean, at: number): number => {
+    const c0 = Math.max(0, Math.round(at) - B), c1 = Math.min(N - 1, Math.round(at) + B);
+    let best = 0, run = 0;
+    for (let i = 0; i < N; i++) {
+      let dark = 0, n = 0;
+      for (let c = c0; c <= c1; c++) {
+        n++;
+        const p = isVertical ? i * N + c : c * N + i;
+        if (lum[p] < T) dark++;
+      }
+      if (dark * 2 >= n) run++;
+      else {
+        if (run > best) best = run;
+        run = 0;
+      }
+    }
+    if (run > best) best = run;
+    return best / N;
+  };
+  let gridLines = 0;
+  for (const at of [N / 3, (2 * N) / 3]) {
+    if (longestRun(true, at) >= NEED) gridLines++;
+    if (longestRun(false, at) >= NEED) gridLines++;
+  }
+
+  // sticker flatness: mean Lab spread inside the central 55% of each cell
+  const spreads: number[] = [];
+  for (let r = 0; r < 3; r++) {
+    for (let c = 0; c < 3; c++) {
+      const x0 = Math.floor(((c + 0.225) * N) / 3), x1 = Math.ceil(((c + 0.775) * N) / 3);
+      const y0 = Math.floor(((r + 0.225) * N) / 3), y1 = Math.ceil(((r + 0.775) * N) / 3);
+      const labs: Array<[number, number, number]> = [];
+      for (let y = y0; y < y1; y++) {
+        for (let x = x0; x < x1; x++) {
+          const p = y * N + x;
+          labs.push(rgbToLab({ r: data[p * 4], g: data[p * 4 + 1], b: data[p * 4 + 2] }));
+        }
+      }
+      let mL = 0, mA = 0, mB = 0;
+      for (const l of labs) { mL += l[0]; mA += l[1]; mB += l[2]; }
+      mL /= labs.length; mA /= labs.length; mB /= labs.length;
+      let s = 0;
+      for (const l of labs) s += Math.sqrt((l[0] - mL) ** 2 + (l[1] - mA) ** 2 + (l[2] - mB) ** 2);
+      spreads.push(s / labs.length);
+    }
+  }
+  const uniformity = spreads.reduce((a, b) => a + b, 0) / spreads.length;
+  return { darkFrac: dark / total, contrast, gridLines, uniformity };
+}
+
+/**
+ * True only if the frame plausibly contains a cube face.
+ */
+export function looksLikeCube(m: OverlayMetrics): boolean {
+  return m.darkFrac >= 0.06 && m.contrast >= 25 && m.gridLines >= 3 && m.uniformity <= 20;
 }

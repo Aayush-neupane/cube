@@ -95,7 +95,12 @@ export default function App() {
         <div className="mx-auto flex h-[52px] max-w-[1120px] items-center justify-between px-4">
           <div className="flex items-center gap-2.5">
             <SiteLogo size={30} />
-            <h1 className="text-[15px] font-extrabold tracking-[0.08em]">{SITE.appName}</h1>
+            <h1 aria-label="AURORA Cube" className="leading-none">
+              <span aria-hidden className="block text-[15px] font-extrabold tracking-[0.08em]">AURORA</span>
+              <span aria-hidden className="mt-[3px] flex justify-between text-[10px] font-bold text-neutral-500 dark:text-neutral-400">
+                <span>C</span><span>U</span><span>B</span><span>E</span>
+              </span>
+            </h1>
           </div>
           <nav className="flex items-center gap-1.5" aria-label="App">
             <button

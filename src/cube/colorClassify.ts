@@ -31,11 +31,6 @@ export function rgbToLab({ r, g, b }: RGB): [number, number, number] {
   return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
 }
 
-function labDist(a: [number, number, number], b: [number, number, number]): number {
-  const dL = a[0] - b[0], da = a[1] - b[1], db = a[2] - b[2];
-  return Math.sqrt(dL * dL + da * da + db * db);
-}
-
 /** Classify every cell against the six observed center colors (self-calibrating). */
 export function classifyAll(samples: RGB[][]): Face[] {
   const centers = samples.map((s) => rgbToLab(s[4]));
@@ -45,13 +40,28 @@ export function classifyAll(samples: RGB[][]): Face[] {
       const lab = rgbToLab(cell);
       let best = 0, bestD = Infinity;
       for (let i = 0; i < 6; i++) {
-        const d = labDist(lab, centers[i]);
+        const c = centers[i];
+        const dL = lab[0] - c[0], da = lab[1] - c[1], db = lab[2] - c[2];
+        const d = Math.sqrt(dL * dL + da * da + db * db);
         if (d < bestD) { bestD = d; best = i; }
       }
       out.push(SCAN_FACES[best]);
     }
   }
   return out;
+}
+
+/**
+ * Swap two colors among a face's non-center stickers (centers define the
+ * scheme and stay fixed). One-tap fix for the classic red/orange mixup.
+ */
+export function swapColors(grid: string[], faceIdx: number, a: Face, b: Face): string[] {
+  return grid.map((g, i) => {
+    if (Math.floor(i / 9) !== faceIdx || i % 9 === 4) return g;
+    if (g === a) return b;
+    if (g === b) return a;
+    return g;
+  });
 }
 
 /**

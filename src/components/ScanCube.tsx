@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCubeStore } from '../store/useCubeStore';
 import { FACE_COLORS, Face } from '../cube/types';
-import { RGB, FrameAnalysis, classifyAll, looksLikeCube, computeOverlayMetrics } from '../cube/colorClassify';
+import { RGB, FrameAnalysis, classifyAll, looksLikeCube, computeOverlayMetrics, swapColors } from '../cube/colorClassify';
 import { ensureSolver, solveFacelets } from '../cube/externalSolver';
 
 type Phase = 'intro' | 'capture' | 'manual' | 'review' | 'solving';
@@ -189,6 +189,27 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
       settled = true;
       clearTimeout(timer);
       streamRef.current = stream;
+      // Best effort: lock white balance + exposure so colors don't drift
+      // between the six captures (the main cause of red/orange mixups).
+      try {
+        const track = stream.getVideoTracks()[0];
+        const caps = (track.getCapabilities?.() ?? {}) as MediaTrackCapabilities & {
+          whiteBalanceMode?: string[];
+          exposureMode?: string[];
+        };
+        const adv: Record<string, string> = {};
+        if (Array.isArray(caps.whiteBalanceMode) && caps.whiteBalanceMode.includes('manual')) {
+          adv.whiteBalanceMode = 'manual';
+        }
+        if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes('manual')) {
+          adv.exposureMode = 'manual';
+        }
+        if (Object.keys(adv).length > 0) {
+          await track.applyConstraints({ advanced: [adv] } as MediaTrackConstraints);
+        }
+      } catch {
+        /* phones vary wildly — unlocked camera still scans, just less steadily */
+      }
       setStarting(false);
       setPhase('capture');
       setStep(0);
@@ -428,7 +449,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
             <p className="mt-2 text-[13px] text-neutral-600 dark:text-neutral-300">
               Does this match your cube? Tap any square to fix its color.
             </p>
-            <NetPreview grid={grid} onCycle={cycleCell} />
+            <NetPreview grid={grid} onCycle={cycleCell} onSwap={(f) => setGrid((prev) => swapColors(prev, f, 'R', 'L'))} />
             {error && <p className="mt-2 text-[12px] text-red-600 dark:text-red-400">{error}</p>}
             <div className="mt-2.5 flex gap-2">
               <button
@@ -477,7 +498,7 @@ function FaceEditor({ faceIdx, grid, onCycle }: { faceIdx: number; grid: string[
   );
 }
 
-function NetPreview({ grid, onCycle }: { grid: string[]; onCycle: (idx: number) => void }) {
+function NetPreview({ grid, onCycle, onSwap }: { grid: string[]; onCycle: (idx: number) => void; onSwap: (faceIdx: number) => void }) {
   // unfolded net: U on top; L F R B middle; D bottom
   const faces: Array<{ faceIdx: number; area: string }> = [
     { faceIdx: 0, area: 'u' },
@@ -493,19 +514,28 @@ function NetPreview({ grid, onCycle }: { grid: string[]; onCycle: (idx: number) 
       style={{ gridTemplateAreas: `". u . ." "l f r b" ". d . ."`, gridTemplateColumns: 'repeat(4, 1fr)' }}
     >
       {faces.map(({ faceIdx, area }) => (
-        <div key={faceIdx} className="grid grid-cols-3 gap-[3px]" style={{ gridArea: area }} role="group" aria-label={`${FACE_NAMES[SCAN_FACES[faceIdx]]} face`}>
-          {grid.slice(faceIdx * 9, faceIdx * 9 + 9).map((letter, i) => {
-            const idx = faceIdx * 9 + i;
-            return (
-              <button
-                key={i}
-                onClick={() => onCycle(idx)}
-                aria-label={`${FACE_NAMES[SCAN_FACES[faceIdx]]} sticker ${i + 1}, ${letter || 'blank'}. Tap to change.`}
-                className="aspect-square rounded-[3px] border border-black/10"
-                style={{ background: letter ? FACE_COLORS[letter as Face] : '#e5e5e5' }}
-              />
-            );
-          })}
+        <div key={faceIdx} style={{ gridArea: area }}>
+          <div className="grid grid-cols-3 gap-[3px]" role="group" aria-label={`${FACE_NAMES[SCAN_FACES[faceIdx]]} face`}>
+            {grid.slice(faceIdx * 9, faceIdx * 9 + 9).map((letter, i) => {
+              const idx = faceIdx * 9 + i;
+              return (
+                <button
+                  key={i}
+                  onClick={() => onCycle(idx)}
+                  aria-label={`${FACE_NAMES[SCAN_FACES[faceIdx]]} sticker ${i + 1}, ${letter || 'blank'}. Tap to change.`}
+                  className="aspect-square rounded-[3px] border border-black/10"
+                  style={{ background: letter ? FACE_COLORS[letter as Face] : '#e5e5e5' }}
+                />
+              );
+            })}
+          </div>
+          <button
+            onClick={() => onSwap(faceIdx)}
+            aria-label={`Swap red and orange on the ${FACE_NAMES[SCAN_FACES[faceIdx]]} face`}
+            className="mt-1 w-full rounded border border-neutral-200 py-0.5 text-[10px] font-medium text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+          >
+            ⇄ red/orange
+          </button>
         </div>
       ))}
     </div>

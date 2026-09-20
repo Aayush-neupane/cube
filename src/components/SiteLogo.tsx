@@ -15,7 +15,6 @@ export default function SiteLogo({ size = 30, className }: Props) {
       height={size}
       draggable={false}
       className={className}
-      style={{ filter: 'drop-shadow(0 0 6px rgba(47,125,246,0.45))' }}
     />
   );
 }

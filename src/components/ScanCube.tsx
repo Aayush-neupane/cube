@@ -332,7 +332,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Scan a real cube">
       <div className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-white p-4 dark:bg-neutral-900 sm:rounded-xl">
         <div className="flex items-center justify-between">
-          <h2 className="text-[15px] font-semibold tracking-tight">📷 Scan a real cube</h2>
+          <h2 className="text-[15px] font-semibold tracking-tight">Scan a real cube</h2>
           <button onClick={() => { stopCamera(); onClose(); }} aria-label="Close scanner" className="h-8 w-8 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800">✕</button>
         </div>
 
@@ -347,7 +347,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               <li>· Non-cube frames are rejected automatically</li>
               <li>· You can fix any misread sticker afterwards</li>
             </ul>
-            <button onClick={startCamera} disabled={starting} className="aurora-btn mt-3 h-10 w-full rounded-md text-[14px] font-semibold text-white disabled:opacity-60">
+            <button onClick={startCamera} disabled={starting} className="mt-3 h-10 w-full rounded-md bg-neutral-900 text-[14px] font-semibold text-white hover:bg-neutral-800 disabled:opacity-60 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200">
               {starting ? 'Starting camera…' : 'Start scanning'}
             </button>
             <button
@@ -458,7 +458,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               >
                 ↺ Re-scan
               </button>
-              <button onClick={solve} className="aurora-btn h-10 flex-1 rounded-md text-[14px] font-semibold text-white">
+              <button onClick={solve} className="h-10 flex-1 rounded-md bg-neutral-900 text-[14px] font-semibold text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200">
                 Solve this cube
               </button>
             </div>

@@ -55,9 +55,9 @@ export default function SolveGuide() {
         </div>
         <button
           onClick={() => setOpen(true)}
-          className="aurora-btn mt-2.5 h-9 w-full rounded-md text-[13px] font-semibold text-white"
+          className="mt-2.5 h-9 w-full rounded-md bg-neutral-900 text-[13px] font-semibold text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
         >
-          💡 Show me how to solve it
+          Show me how to solve it
         </button>
       </section>
     );

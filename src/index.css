@@ -46,23 +46,6 @@ body {
   color: #60a5fa;
 }
 
-/* AURORA accents — restrained aurora gradient, used sparingly */
-.aurora-btn {
-  background: linear-gradient(135deg, #059669 0%, #0891b2 48%, #7c3aed 100%);
-  transition: filter 120ms ease, transform 120ms ease;
-}
-.aurora-btn:hover {
-  filter: brightness(1.1);
-}
-.aurora-btn:active {
-  transform: translateY(1px);
-}
-.aurora-hairline {
-  height: 2px;
-  background: linear-gradient(90deg, #34d399 0%, #22d3ee 40%, #818cf8 70%, #e879f9 100%);
-  opacity: 0.85;
-}
-
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

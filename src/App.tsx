@@ -11,6 +11,57 @@ import { SITE } from './site';
 import { useCubeStore } from './store/useCubeStore';
 import { formatTime } from './utils/format';
 
+const stroke = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.8,
+  strokeLinecap: 'round',
+} as const;
+
+function IconSun() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...stroke} aria-hidden>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+    </svg>
+  );
+}
+
+function IconMoon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...stroke} strokeLinejoin="round" aria-hidden>
+      <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
+    </svg>
+  );
+}
+
+function IconSoundOn() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...stroke} strokeLinejoin="round" aria-hidden>
+      <path d="M11 5 6 9H3v6h3l5 4V5z" />
+      <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" />
+    </svg>
+  );
+}
+
+function IconMuted() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" {...stroke} strokeLinejoin="round" aria-hidden>
+      <path d="M11 5 6 9H3v6h3l5 4V5z" />
+      <path d="M16 9l6 6M22 9l-6 6" />
+    </svg>
+  );
+}
+
+function IconCamera() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" {...stroke} strokeLinejoin="round" aria-hidden>
+      <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </svg>
+  );
+}
+
 export default function App() {
   const [scanning, setScanning] = useState(false);  const doScramble = useCubeStore((s) => s.doScramble);
   const doReset = useCubeStore((s) => s.doReset);
@@ -106,21 +157,20 @@ export default function App() {
             <button
               onClick={() => updateSettings({ theme: settings.theme === 'dark' ? 'light' : 'dark' })}
               aria-label="Toggle theme"
-              className="h-8 w-8 rounded-md border border-neutral-200 text-[13px] text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              {settings.theme === 'dark' ? '☾' : '☀'}
+              {settings.theme === 'dark' ? <IconMoon /> : <IconSun />}
             </button>
             <button
               onClick={() => updateSettings({ soundOn: !settings.soundOn })}
               aria-label="Toggle sound"
               aria-pressed={settings.soundOn}
-              className="h-8 w-8 rounded-md border border-neutral-200 text-[13px] text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              className="flex h-8 w-8 items-center justify-center rounded-md border border-neutral-200 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              {settings.soundOn ? '♪' : '∅'}
+              {settings.soundOn ? <IconSoundOn /> : <IconMuted />}
             </button>
           </nav>
         </div>
-        <div aria-hidden className="aurora-hairline" />
       </header>
 
       {/* Main */}
@@ -177,9 +227,9 @@ export default function App() {
           <div className="flex min-w-0 flex-col gap-3">
             <button
               onClick={() => setScanning(true)}
-              className="aurora-btn h-11 rounded-md text-[14px] font-semibold text-white"
+              className="flex h-11 items-center justify-center gap-2 rounded-md bg-neutral-900 text-[14px] font-semibold text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200"
             >
-              📷 Scan a real cube
+              <IconCamera /> Scan a real cube
             </button>
             <ScrambleBar />
             <SolveGuide />

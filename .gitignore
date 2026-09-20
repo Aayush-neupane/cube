@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+dist-ssr/
+*.local
+
+# logs
+logs/
+*.log
+npm-debug.log*
+
+# editor / os
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# vite / tsc
+.vite/
+*.tsbuildinfo
+
+# env
+.env
+.env.*
+!.env.example

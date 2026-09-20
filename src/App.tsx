@@ -95,10 +95,7 @@ export default function App() {
         <div className="mx-auto flex h-[52px] max-w-[1120px] items-center justify-between px-4">
           <div className="flex items-center gap-2.5">
             <SiteLogo size={30} />
-            <div className="leading-tight">
-              <p className="text-[14px] font-extrabold tracking-[0.18em]">{SITE.wordmark}</p>
-              <p className="text-[8px] uppercase tracking-[0.22em] text-neutral-400">{SITE.tagline}</p>
-            </div>
+            <h1 className="text-[15px] font-extrabold tracking-[0.08em]">{SITE.appName}</h1>
           </div>
           <nav className="flex items-center gap-1.5" aria-label="App">
             <button

@@ -121,6 +121,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   const [grid, setGrid] = useState<string[]>(emptyGrid());
   const [error, setError] = useState<string | null>(null);
   const [warming, setWarming] = useState(true);
+  const [live, setLive] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -134,14 +135,34 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
+    setLive(false);
   };
   useEffect(() => stopCamera, []);
 
+  // Attach the stream whenever the viewfinder exists (robust against slow renders)
+  useEffect(() => {
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (phase === 'capture' && video && stream && video.srcObject !== stream) {
+      video.srcObject = stream;
+      video.play().catch(() => {});
+    }
+    if (phase !== 'capture') setLive(false);
+  }, [phase, step]);
+
   const startCamera = async () => {
     setError(null);
+    setLive(false);
+    const insecure =
+      typeof window !== 'undefined' &&
+      window.isSecureContext === false;
     if (!navigator.mediaDevices?.getUserMedia) {
       setPhase('manual');
-      setError('No camera available here (camera needs HTTPS or localhost) — enter the colors manually below.');
+      setError(
+        insecure
+          ? 'Camera is blocked because this page is not on HTTPS — browsers only allow the camera on HTTPS or localhost. Use manual entry here, or open the hosted (https) version on your phone to scan.'
+          : 'No camera API available on this device — enter the colors manually below.'
+      );
       return;
     }
     try {
@@ -152,13 +173,18 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
       streamRef.current = stream;
       setPhase('capture');
       setStep(0);
-      // attach on next paint once the video element exists
-      setTimeout(() => {
-        if (videoRef.current) videoRef.current.srcObject = stream;
-      }, 30);
-    } catch {
+    } catch (e) {
+      const name = e instanceof DOMException ? e.name : '';
       setPhase('manual');
-      setError('Camera was blocked or unavailable — enter the colors manually below. In your browser settings, allow camera access to scan.');
+      if (name === 'NotAllowedError') {
+        setError('Camera permission was denied — allow camera access for this site in your browser settings, then try again. Or enter the colors manually below.');
+      } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+        setError('No suitable camera found on this device — enter the colors manually below.');
+      } else if (name === 'NotReadableError' || name === 'TrackStartError') {
+        setError('The camera is busy (another app may be using it) — close other camera apps and try again, or enter colors manually.');
+      } else {
+        setError('Camera could not start — enter the colors manually below.');
+      }
     }
   };
 
@@ -273,13 +299,16 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               <span className="text-neutral-500">Hold with {HOLD_TOP[face]}.</span>
             </p>
             <div className="relative mx-auto mt-2.5 aspect-square w-full max-w-[380px] overflow-hidden rounded-lg bg-black">
-              <video ref={videoRef} playsInline muted autoPlay className="absolute inset-0 h-full w-full object-cover" />
+              <video ref={videoRef} playsInline muted autoPlay onPlaying={() => setLive(true)} className="absolute inset-0 h-full w-full object-cover" />
               <div aria-hidden className="absolute left-1/2 top-1/2 grid aspect-square w-[62%] -translate-x-1/2 -translate-y-1/2 grid-cols-3">
                 {Array.from({ length: 9 }).map((_, i) => (
                   <div key={i} className={`border border-white/80 ${i === 4 ? 'bg-white/20' : ''}`} />
                 ))}
               </div>
             </div>
+            <p className="mt-1.5 text-center text-[11px] text-neutral-400" aria-live="polite">
+              {live ? '● Camera live — fit one face inside the square' : 'Starting camera… if this never turns live, the stream failed to attach.'}
+            </p>
             <div className="mt-2.5 flex gap-2">
               {step > 0 && (
                 <button onClick={() => setStep(step - 1)} className="h-10 rounded-md border border-neutral-200 px-4 text-[13px] font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">

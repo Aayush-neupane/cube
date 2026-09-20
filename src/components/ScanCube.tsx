@@ -122,6 +122,8 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [warming, setWarming] = useState(true);
   const [live, setLive] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [meta, setMeta] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -145,14 +147,23 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
     const stream = streamRef.current;
     if (phase === 'capture' && video && stream && video.srcObject !== stream) {
       video.srcObject = stream;
-      video.play().catch(() => {});
+      video.play().catch(() => {
+        setError('Video is paused — tap the viewfinder to start it.');
+      });
     }
     if (phase !== 'capture') setLive(false);
   }, [phase, step]);
 
+  const pokeVideo = () => {
+    videoRef.current?.play().catch(() => {
+      setError('Video refused to play — try closing other camera apps, or use manual entry.');
+    });
+  };
+
   const startCamera = async () => {
     setError(null);
     setLive(false);
+    setMeta('');
     const insecure =
       typeof window !== 'undefined' &&
       window.isSecureContext === false;
@@ -165,15 +176,38 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
       );
       return;
     }
+    // If the permission prompt hangs or the driver stalls, don't leave the
+    // user staring at a dead screen — bail out with manual entry.
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        setStarting(false);
+        setPhase('manual');
+        setError('The camera took too long to respond — enter the colors manually below, or try again.');
+      }
+    }, 15000);
+    setStarting(true);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
         audio: false,
       });
+      if (settled) {
+        stream.getTracks().forEach((t) => t.stop()); // late arrival after timeout
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       streamRef.current = stream;
+      setStarting(false);
       setPhase('capture');
       setStep(0);
     } catch (e) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      setStarting(false);
       const name = e instanceof DOMException ? e.name : '';
       setPhase('manual');
       if (name === 'NotAllowedError') {
@@ -189,31 +223,42 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   };
 
   const capture = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    const cells = sampleFace(video);
-    if (!cells) {
-      setError('Could not read the frame — hold still and try again.');
-      return;
-    }
-    setError(null);
-    setSamples((prev) => {
-      const next = [...prev];
-      next[step] = cells;
-      return next;
-    });
-    if (step === 5) {
-      // all faces captured -> classify everything against the six centers
-      const all = samples.map((s, i) => (i === step ? cells : s));
-      if (all.some((s) => !s)) {
-        setError('A face is missing — please re-capture it.');
+    try {
+      const video = videoRef.current;
+      if (!video) {
+        setError('Viewfinder is not ready yet — wait a second and try again.');
         return;
       }
-      setGrid(classifyAll(all as RGB[][]));
-      stopCamera();
-      setPhase('review');
-    } else {
-      setStep(step + 1);
+      if (video.videoWidth === 0) {
+        setError('Video has no picture yet (waiting for the camera…) — wait for “live” and try again.');
+        return;
+      }
+      const cells = sampleFace(video);
+      if (!cells) {
+        setError(`Could not read the frame (signal ${video.videoWidth}×${video.videoHeight}) — hold still and try again.`);
+        return;
+      }
+      setError(null);
+      setSamples((prev) => {
+        const next = [...prev];
+        next[step] = cells;
+        return next;
+      });
+      if (step === 5) {
+        // all faces captured -> classify everything against the six centers
+        const all = samples.map((s, i) => (i === step ? cells : s));
+        if (all.some((s) => !s)) {
+          setError('A face is missing — please re-capture it.');
+          return;
+        }
+        setGrid(classifyAll(all as RGB[][]));
+        stopCamera();
+        setPhase('review');
+      } else {
+        setStep(step + 1);
+      }
+    } catch (e) {
+      setError(`Capture failed unexpectedly (${e instanceof Error ? e.message : 'unknown error'}) — try again or use manual entry.`);
     }
   };
 
@@ -278,8 +323,8 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               <li>· Fill the square guide with one face at a time</li>
               <li>· You can fix any misread sticker afterwards</li>
             </ul>
-            <button onClick={startCamera} className="aurora-btn mt-3 h-10 w-full rounded-md text-[14px] font-semibold text-white">
-              Start scanning
+            <button onClick={startCamera} disabled={starting} className="aurora-btn mt-3 h-10 w-full rounded-md text-[14px] font-semibold text-white disabled:opacity-60">
+              {starting ? 'Starting camera…' : 'Start scanning'}
             </button>
             <button
               onClick={() => { setGrid(emptyGrid()); setPhase('manual'); }}
@@ -299,7 +344,16 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               <span className="text-neutral-500">Hold with {HOLD_TOP[face]}.</span>
             </p>
             <div className="relative mx-auto mt-2.5 aspect-square w-full max-w-[380px] overflow-hidden rounded-lg bg-black">
-              <video ref={videoRef} playsInline muted autoPlay onPlaying={() => setLive(true)} className="absolute inset-0 h-full w-full object-cover" />
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                autoPlay
+                onPlaying={() => setLive(true)}
+                onLoadedMetadata={(e) => setMeta(`${e.currentTarget.videoWidth}×${e.currentTarget.videoHeight}`)}
+                onClick={pokeVideo}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
               <div aria-hidden className="absolute left-1/2 top-1/2 grid aspect-square w-[62%] -translate-x-1/2 -translate-y-1/2 grid-cols-3">
                 {Array.from({ length: 9 }).map((_, i) => (
                   <div key={i} className={`border border-white/80 ${i === 4 ? 'bg-white/20' : ''}`} />
@@ -307,7 +361,8 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             <p className="mt-1.5 text-center text-[11px] text-neutral-400" aria-live="polite">
-              {live ? '● Camera live — fit one face inside the square' : 'Starting camera… if this never turns live, the stream failed to attach.'}
+              {live ? '● Camera live — fit one face inside the square' : 'Starting camera… if this never turns live, tap the viewfinder.'}
+              {meta ? ` · signal ${meta}` : ''}
             </p>
             <div className="mt-2.5 flex gap-2">
               {step > 0 && (

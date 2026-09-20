@@ -194,11 +194,22 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   const cycleCell = (idx: number) => {
     if (idx % 9 === 4) return; // center locked (it defines the color scheme)
     setGrid((prev) => {
-      const next = [...prev];
-      const cur = next[idx];
-      const curPos = cur ? CYCLE.indexOf(cur as Face) : -1;
-      next[idx] = CYCLE[(curPos + 1) % 6];
-      return next;
+      // No color may appear more than 9 times — full colors are skipped.
+      const counts: Record<string, number> = {};
+      for (const g of prev) if (g) counts[g] = (counts[g] ?? 0) + 1;
+      const cur = prev[idx];
+      const startPos = cur ? CYCLE.indexOf(cur as Face) : -1;
+      for (let k = 1; k <= 6; k++) {
+        const cand = CYCLE[(startPos + k) % 6];
+        const effective = (counts[cand] ?? 0) - (cur === cand ? 1 : 0);
+        if (effective < 9) {
+          if (cand === cur) return prev;
+          const next = [...prev];
+          next[idx] = cand;
+          return next;
+        }
+      }
+      return prev;
     });
   };
 

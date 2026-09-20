@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCubeStore } from '../store/useCubeStore';
 import { FACE_COLORS, Face } from '../cube/types';
+import { RGB, FrameAnalysis, classifyAll, looksLikeCube } from '../cube/colorClassify';
 import { ensureSolver, solveFacelets } from '../cube/externalSolver';
 
 type Phase = 'intro' | 'capture' | 'manual' | 'review' | 'solving';
-
-interface RGB { r: number; g: number; b: number; }
 
 const SCAN_FACES: Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
 const CYCLE: Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
@@ -19,60 +18,9 @@ const HOLD_TOP: Record<Face, string> = {
   B: 'white on top',
 };
 
-// ---------- color science (compact RGB -> Lab + nearest-center match) ----------
-function rgbToLab({ r, g, b }: RGB): [number, number, number] {
-  const f = (c: number) => {
-    c /= 255;
-    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  };
-  const R = f(r), G = f(g), B = f(b);
-  let x = (R * 0.4124 + G * 0.3576 + B * 0.1805) / 0.95047;
-  let y = (R * 0.2126 + G * 0.7152 + B * 0.0722) / 1.0;
-  let z = (R * 0.0193 + G * 0.1192 + B * 0.9505) / 1.08883;
-  const g2 = (t: number) => (t > 0.008856 ? Math.pow(t, 1 / 3) : 7.787 * t + 16 / 116);
-  x = g2(x); y = g2(y); z = g2(z);
-  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
-}
-
-function labDist(a: [number, number, number], b: [number, number, number]): number {
-  const dL = a[0] - b[0], da = a[1] - b[1], db = a[2] - b[2];
-  return Math.sqrt(dL * dL + da * da + db * db);
-}
-
-/** Classify every cell against the six observed center colors. */
-function classifyAll(samples: RGB[][]): Face[] {
-  const centers = samples.map((s) => rgbToLab(s[4]));
-  const out: Face[] = [];
-  for (const faceSamples of samples) {
-    for (const cell of faceSamples) {
-      const lab = rgbToLab(cell);
-      let best = 0, bestD = Infinity;
-      for (let i = 0; i < 6; i++) {
-        const d = labDist(lab, centers[i]);
-        if (d < bestD) { bestD = d; best = i; }
-      }
-      out.push(SCAN_FACES[best]);
-    }
-  }
-  return out;
-}
-
+// ---------- frame sampling (DOM/canvas side; color math lives in cube/colorClassify) ----------
 /** Sample the 9 cells inside the centered 62% overlay square of the video. */
-function sampleFace(video: HTMLVideoElement): RGB[] | null {
-  const vw = video.videoWidth, vh = video.videoHeight;
-  if (!vw || !vh) return null;
-  const dw = video.clientWidth, dh = video.clientHeight;
-  if (!dw || !dh) return null;
-  const scale = Math.max(dw / vw, dh / vh); // object-fit: cover
-  const offX = (dw - vw * scale) / 2;
-  const offY = (dh - vh * scale) / 2;
-  const S = 0.62 * Math.min(dw, dh);
-  const ox = (dw - S) / 2, oy = (dh - S) / 2;
-  const canvas = document.createElement('canvas');
-  canvas.width = vw; canvas.height = vh;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  if (!ctx) return null;
-  ctx.drawImage(video, 0, 0, vw, vh);
+function sampleCells(ctx: CanvasRenderingContext2D, toVideo: (cx: number, cy: number) => [number, number], S: number, ox: number, oy: number, vw: number, vh: number): RGB[] | null {
   const cells: RGB[] = [];
   const inner = 0.8;
   const m = (S * (1 - inner)) / 2;
@@ -80,9 +28,8 @@ function sampleFace(video: HTMLVideoElement): RGB[] | null {
     for (let c = 0; c < 3; c++) {
       const cx = ox + m + ((c + 0.5) / 3) * S * inner;
       const cy = oy + m + ((r + 0.5) / 3) * S * inner;
-      const vx = Math.round((cx - offX) / scale);
-      const vy = Math.round((cy - offY) / scale);
-      const w = Math.max(2, Math.round((((S * inner) / 3) * 0.3) / scale));
+      const [vx, vy] = toVideo(cx, cy);
+      const w = 3;
       const x0 = Math.max(0, vx - w), y0 = Math.max(0, vy - w);
       const ww = Math.min(vw - x0, w * 2 + 1), hh = Math.min(vh - y0, w * 2 + 1);
       if (ww <= 0 || hh <= 0) return null;
@@ -93,6 +40,57 @@ function sampleFace(video: HTMLVideoElement): RGB[] | null {
     }
   }
   return cells;
+}
+
+/**
+ * Read one frame: sticker colors + cube-presence metrics.
+ * A real cube face always has dark plastic grid gaps and strong
+ * sticker-vs-gap contrast; faces, walls and skies do not.
+ */
+function analyzeFrame(video: HTMLVideoElement): FrameAnalysis | null {
+  const vw = video.videoWidth, vh = video.videoHeight;
+  if (!vw || !vh) return null;
+  const dw = video.clientWidth, dh = video.clientHeight;
+  if (!dw || !dh) return null;
+  const scale = Math.max(dw / vw, dh / vh); // object-fit: cover
+  const offX = (dw - vw * scale) / 2;
+  const offY = (dh - vh * scale) / 2;
+  const S = 0.62 * Math.min(dw, dh);
+  const ox = (dw - S) / 2, oy = (dh - S) / 2;
+  const toVideo = (cx: number, cy: number): [number, number] => [
+    Math.round((cx - offX) / scale),
+    Math.round((cy - offY) / scale),
+  ];
+  const canvas = document.createElement('canvas');
+  canvas.width = vw; canvas.height = vh;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, vw, vh);
+
+  const cells = sampleCells(ctx, toVideo, S, ox, oy, vw, vh);
+  if (!cells) return null;
+
+  // Downscaled copy of just the overlay square for global metrics
+  const N = 96;
+  const small = document.createElement('canvas');
+  small.width = N; small.height = N;
+  const sctx = small.getContext('2d', { willReadFrequently: true });
+  if (!sctx) return null;
+  const [sx, sy] = toVideo(ox, oy);
+  const [ex, ey] = toVideo(ox + S, oy + S);
+  sctx.drawImage(canvas, sx, sy, ex - sx, ey - sy, 0, 0, N, N);
+  const px = sctx.getImageData(0, 0, N, N).data;
+  let dark = 0, sum = 0, sumSq = 0;
+  const total = N * N;
+  for (let i = 0; i < px.length; i += 4) {
+    const lum = 0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2];
+    if (lum < 80) dark++;
+    sum += lum;
+    sumSq += lum * lum;
+  }
+  const mean = sum / total;
+  const contrast = Math.sqrt(Math.max(0, sumSq / total - mean * mean));
+  return { cells, darkFrac: dark / total, contrast };
 }
 
 function validateGrid(grid: string[]): string | null {
@@ -233,11 +231,16 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
         setError('Video has no picture yet (waiting for the camera…) — wait for “live” and try again.');
         return;
       }
-      const cells = sampleFace(video);
-      if (!cells) {
+      const frame = analyzeFrame(video);
+      if (!frame) {
         setError(`Could not read the frame (signal ${video.videoWidth}×${video.videoHeight}) — hold still and try again.`);
         return;
       }
+      if (!looksLikeCube(frame)) {
+        setError('No cube detected — fill the square edge-to-edge with a single cube face, then capture.');
+        return;
+      }
+      const cells = frame.cells;
       setError(null);
       setSamples((prev) => {
         const next = [...prev];
@@ -320,7 +323,8 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
             </p>
             <ul className="mt-2.5 space-y-1 text-[12.5px] text-neutral-500">
               <li>· Good light, no glare — plain background works best</li>
-              <li>· Fill the square guide with one face at a time</li>
+              <li>· Fill the square completely with one face at a time</li>
+              <li>· Non-cube frames are rejected automatically</li>
               <li>· You can fix any misread sticker afterwards</li>
             </ul>
             <button onClick={startCamera} disabled={starting} className="aurora-btn mt-3 h-10 w-full rounded-md text-[14px] font-semibold text-white disabled:opacity-60">
@@ -375,6 +379,12 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               </button>
             </div>
             {error && <p className="mt-2 text-[12px] text-red-600 dark:text-red-400">{error}</p>}
+            <button
+              onClick={() => { stopCamera(); setGrid(emptyGrid()); setStep(0); setPhase('manual'); setError(null); }}
+              className="mt-2 w-full text-center text-[12px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
+            >
+              Wrongly rejected? Enter colors manually instead
+            </button>
           </div>
         )}
 

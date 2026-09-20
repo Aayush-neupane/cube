@@ -74,11 +74,12 @@ export function computeOverlayMetrics(data: ArrayLike<number>, N: number): Overl
   const mean = sum / total;
   const contrast = Math.sqrt(Math.max(0, (sumSq / total) - mean * mean));
 
-  // grid gaps: dark bands (±3px) along the four internal boundaries.
+  // grid gaps: dark bands (±4px) along the four internal boundaries.
   // A real gap is a STRAIGHT line spanning the square, so we measure the
   // longest continuous dark run — eyebrows and shadows make short blobs.
+  // Thresholds are deliberately forgiving (tilt, mild glare, small cubes);
   // isVertical: boundary is a vertical line (x = at), runs extend along y.
-  const B = 3, T = 110, NEED = 0.65;
+  const B = 4, T = 110, NEED = 0.5;
   const longestRun = (isVertical: boolean, at: number): number => {
     const c0 = Math.max(0, Math.round(at) - B), c1 = Math.min(N - 1, Math.round(at) + B);
     let best = 0, run = 0;

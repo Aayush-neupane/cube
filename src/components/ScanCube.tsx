@@ -108,6 +108,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   const [samples, setSamples] = useState<(RGB[] | null)[]>(Array(6).fill(null));
   const [grid, setGrid] = useState<string[]>(emptyGrid());
   const [error, setError] = useState<string | null>(null);
+  const [rejects, setRejects] = useState(0);
   const [warming, setWarming] = useState(true);
   const [live, setLive] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -210,7 +211,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const capture = () => {
+  const capture = (force = false) => {
     try {
       const video = videoRef.current;
       if (!video) {
@@ -226,10 +227,18 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
         setError(`Could not read the frame (signal ${video.videoWidth}×${video.videoHeight}) — hold still and try again.`);
         return;
       }
-      if (!looksLikeCube(frame.metrics)) {
-        setError('No cube detected — fill the square edge-to-edge with a single cube face, then capture.');
+      if (!force && !looksLikeCube(frame.metrics)) {
+        const m = frame.metrics;
+        let hint = 'fill the square edge-to-edge with a single cube face, holding the phone straight';
+        if (m.contrast < 25) hint = 'add more light — the frame is too flat or dark';
+        else if (m.darkFrac < 0.06) hint = 'no dark grid gaps visible — move closer so the face fills the square';
+        else if (m.gridLines < 3) hint = 'hold the phone straight so the grid lines run across the full square, and tilt away from glare on the black gaps';
+        else hint = 'hold perfectly still while capturing';
+        setRejects((r) => r + 1);
+        setError(`No cube detected (${m.gridLines}/4 grid lines found) — ${hint}.`);
         return;
       }
+      setRejects(0);
       const cells = frame.cells;
       setError(null);
       setSamples((prev) => {
@@ -364,11 +373,19 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
                   ← Back
                 </button>
               )}
-              <button onClick={capture} className="h-10 flex-1 rounded-md bg-neutral-900 text-[14px] font-semibold text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200">
+              <button onClick={() => capture()} className="h-10 flex-1 rounded-md bg-neutral-900 text-[14px] font-semibold text-white hover:bg-neutral-800 dark:bg-white dark:text-neutral-900 dark:hover:bg-neutral-200">
                 Capture {doneCount > step ? 'again' : 'face'}
               </button>
             </div>
             {error && <p className="mt-2 text-[12px] text-red-600 dark:text-red-400">{error}</p>}
+            {rejects >= 2 && (
+              <button
+                onClick={() => capture(true)}
+                className="mt-2 w-full text-center text-[12px] font-medium text-neutral-500 underline hover:text-neutral-700 dark:hover:text-neutral-300"
+              >
+                The cube is in frame but keeps getting rejected? Use this frame anyway
+              </button>
+            )}
             <button
               onClick={() => { stopCamera(); setGrid(emptyGrid()); setStep(0); setPhase('manual'); setError(null); }}
               className="mt-2 w-full text-center text-[12px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"

@@ -22,6 +22,30 @@ function stickerColor(face: 'U' | 'D' | 'L' | 'R' | 'F' | 'B'): string {
   return FACE_COLORS[face];
 }
 
+// One shared material per face color — creating 54 unique materials (and
+// disposing them on every rebuild) churns GPU programs for no visual gain.
+const stickerMatCache = new Map<string, THREE.MeshStandardMaterial>();
+function stickerMat(face: Face): THREE.MeshStandardMaterial {
+  let m = stickerMatCache.get(face);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(stickerColor(face)),
+      roughness: 0.32,
+      metalness: 0.0,
+    });
+    stickerMatCache.set(face, m);
+  }
+  return m;
+}
+
+function isSharedMaterial(m: THREE.Material | null | undefined): boolean {
+  if (!m) return false;
+  for (const cached of stickerMatCache.values()) {
+    if (cached === m) return true;
+  }
+  return false;
+}
+
 function faceForDir(d: Vec3): 'U' | 'D' | 'L' | 'R' | 'F' | 'B' {
   if (d[0] === 1) return 'R';
   if (d[0] === -1) return 'L';
@@ -66,7 +90,7 @@ export default function CubeCanvas() {
       return;
     }
 
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -123,11 +147,7 @@ export default function CubeCanvas() {
           if (z !== 0) dirs.push([0, 0, Math.sign(z)]);
           for (const d of dirs) {
             const face = faceForDir(d);
-            const mat = new THREE.MeshStandardMaterial({
-              color: new THREE.Color(stickerColor(face)),
-              roughness: 0.32,
-              metalness: 0.0,
-            });
+            const mat = stickerMat(face);
             const sticker = new THREE.Mesh(stickerGeo, mat);
             const offset = 0.481;
             sticker.position.set(d[0] * offset, d[1] * offset, d[2] * offset);
@@ -283,7 +303,7 @@ export default function CubeCanvas() {
         const mesh = obj as THREE.Mesh;
         if (mesh.isMesh) {
           const m = mesh.material as THREE.Material;
-          if (m && m !== sharedRef.current?.plasticMat) m.dispose();
+          if (m && m !== sharedRef.current?.plasticMat && !isSharedMaterial(m)) m.dispose();
         }
       });
       scene.remove(c.group);
@@ -303,7 +323,7 @@ export default function CubeCanvas() {
       for (const st of cb.stickers) {
         const d = st.dir;
         const face = st.color as Face;
-        const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(stickerColor(face)), roughness: 0.32, metalness: 0 });
+        const mat = stickerMat(face);
         const sticker = new THREE.Mesh(stickerGeo, mat);
         const offset = 0.481;
         sticker.position.set(d[0] * offset, d[1] * offset, d[2] * offset);

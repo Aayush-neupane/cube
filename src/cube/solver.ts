@@ -86,6 +86,12 @@ const FACE_NAMES: Record<string, string> = {
   B: 'Back',
 };
 
+const SLICE_NAMES: Record<string, string> = {
+  M: 'Middle layer',
+  E: 'Equatorial layer',
+  S: 'Standing layer',
+};
+
 /** Plain-English instruction for a single move, e.g. "Turn the Right face counter-clockwise". */
 export function describeMove(move: string): string {
   let p;
@@ -96,6 +102,12 @@ export function describeMove(move: string): string {
   }
   const faceName = FACE_NAMES[p.base];
   if (!faceName) {
+    const sliceName = SLICE_NAMES[p.base];
+    if (sliceName) {
+      if (p.suffix === '') return `Turn the ${sliceName} clockwise (${p.base})`;
+      if (p.suffix === "'") return `Turn the ${sliceName} counter-clockwise (${p.base}')`;
+      return `Turn the ${sliceName} a half-turn (180°, ${p.base}2)`;
+    }
     // Whole-cube rotation — direction words get confusing, keep the notation.
     return `Rotate the whole cube (${move})`;
   }

@@ -402,24 +402,10 @@ export const useCubeStore = create<CubeStore>((set, get) => ({
   },
 }));
 
-// M-move normalization: our visual pivot supports x=0 middle layer; engine applyParsed is private,
-// so we emulate M via axis moves the engine understands by directly rotating cubies with x=0.
-// Easiest: expand here using cubeEngine internals? Instead handle M as its own move type in types.
-// For now, translate M/M'/M2 into equivalent wide-turn sequences that preserve centers for trainer demo:
-// M  -> R' L X  (net effect equals M when ignoring center orientation)
-// Pragmatically for practice, map M -> L' R X' is messy. We instead map M moves to plain middle-slice
-// single entries the renderer understands (it parses M itself), and emulate logic with R+L+X compensation:
-//   M  = R' + L + X'  (standard equivalence up to whole-cube orientation)
-// To keep logical solved-detection sane for trainer, apply the compensation triple.
+// M/E/S slice moves run natively in the engine (axis + layer 0), so they
+// pass through untouched — solved-detection and trails stay exact.
 function normalizeMove(move: string): string[] {
-  const m = move.trim();
-  if (/^M/i.test(m)) {
-    const upper = m.toUpperCase();
-    if (upper === 'M2') return ["R2", "L2", "X2"];
-    if (upper === "M'" || upper === "M’") return ["R", "L'", "X"];
-    return ["R'", "L", "X'"]; // M
-  }
-  return [m];
+  return [move.trim()];
 }
 
 export function reducedMotionActive(): boolean {

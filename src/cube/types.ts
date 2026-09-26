@@ -75,29 +75,32 @@ export function rotateVec(v: Vec3, axis: Axis, quarter: number): Vec3 {
 }
 
 export interface ParsedMove {
-  base: Face | 'X' | 'Y' | 'Z';
+  base: Face | 'X' | 'Y' | 'Z' | 'M' | 'E' | 'S';
   suffix: '' | "'" | '2' | "2'";
   axis: Axis;
-  layer: number | 'all'; // -1 | 1 | all
+  layer: number | 'all'; // -1 | 0 | 1 | all
   quarter: number; // +1 | -1 | 2
 }
 
 const BASE_AXIS: Record<string, Axis> = {
-  R: 'x', L: 'x', X: 'x',
-  U: 'y', D: 'y', Y: 'y',
-  F: 'z', B: 'z', Z: 'z',
+  R: 'x', L: 'x', X: 'x', M: 'x',
+  U: 'y', D: 'y', Y: 'y', E: 'y',
+  F: 'z', B: 'z', Z: 'z', S: 'z',
 };
 
 // Clockwise quarter-turn as seen from the face (positive = +90 RH).
-// R=-1, L=+1, U=-1, D=+1, F=-1, B=+1, X=-1, Y=-1, Z=-1
+// R=-1, L=+1, U=-1, D=+1, F=-1, B=+1, X=-1, Y=-1, Z=-1.
+// Slices follow their face: M→L, E→D, S→F.
 const BASE_QUARTER: Record<string, number> = {
   R: -1, L: 1, U: -1, D: 1, F: -1, B: 1,
   X: -1, Y: -1, Z: -1,
+  M: 1, E: 1, S: -1,
 };
 
 const BASE_LAYER: Record<string, number | 'all'> = {
   R: 1, L: -1, U: 1, D: -1, F: 1, B: -1,
   X: 'all', Y: 'all', Z: 'all',
+  M: 0, E: 0, S: 0,
 };
 
 export function parseMove(move: string): ParsedMove {

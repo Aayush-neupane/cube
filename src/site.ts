@@ -9,7 +9,7 @@ export const SITE = {
   tagline: 'Cube Studio',
   logoSrc: '/auroratransparent.png',
   developer: 'Aayush Neupane',
-  portfolioUrl: 'https://dynamic-aayush38.netlify.app',
+  portfolioUrl: 'https://aayushnp.netlify.app',
   githubUrl: 'https://github.com/aayush-neupane',
   instagramUrl: 'https://www.instagram.com/dynamic_aayush38',
   // The author's Reddit profile was not found in any project — fill this in.

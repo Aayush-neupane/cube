@@ -154,6 +154,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   const [meta, setMeta] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   // warm up the solver tables in the background
   useEffect(() => {
@@ -168,6 +169,20 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
     setLive(false);
   };
   useEffect(() => stopCamera, []);
+
+  // A modal must take focus, and Escape must always be able to close it.
+  useEffect(() => {
+    panelRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        stopCamera();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose]);
 
   // Attach the stream whenever the viewfinder exists (robust against slow renders)
   useEffect(() => {
@@ -393,7 +408,11 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="Scan a real cube">
-      <div className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-white p-4 dark:bg-neutral-900 sm:rounded-xl">
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="max-h-[94vh] w-full max-w-lg overflow-y-auto rounded-t-xl bg-white p-4 outline-none dark:bg-neutral-900 sm:rounded-xl"
+      >
         <div className="flex items-center justify-between">
           <h2 className="text-[15px] font-semibold tracking-tight">Scan a real cube</h2>
           <button onClick={() => { stopCamera(); onClose(); }} aria-label="Close scanner" className="h-8 w-8 rounded-md border border-neutral-200 text-neutral-500 hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800">✕</button>

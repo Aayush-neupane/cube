@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCubeStore } from '../store/useCubeStore';
 import { FACE_COLORS, Face } from '../cube/types';
-import { RGB, FrameAnalysis, classifyAll, looksLikeCube, computeOverlayMetrics, swapColors } from '../cube/colorClassify';
+import {
+  Lab, FrameAnalysis, SCAN_FACES, reconstructCube, looksLikeCube,
+  computeOverlayMetrics, medianLab, rgbToLab, swapColors, swapColorsEverywhere,
+} from '../cube/colorClassify';
 import { ensureSolver, solveFacelets } from '../cube/externalSolver';
 
 type Phase = 'intro' | 'capture' | 'manual' | 'review' | 'solving';
 
-const SCAN_FACES: Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
 const CYCLE: Face[] = ['U', 'R', 'F', 'D', 'L', 'B'];
 const FACE_NAMES: Record<Face, string> = { U: 'Top (white)', R: 'Right (red)', F: 'Front (green)', D: 'Bottom (yellow)', L: 'Left (orange)', B: 'Back (blue)' };
 const HOLD_TOP: Record<Face, string> = {
@@ -19,24 +21,53 @@ const HOLD_TOP: Record<Face, string> = {
 };
 
 // ---------- frame sampling (DOM/canvas side; color math lives in cube/colorClassify) ----------
-/** Sample the 9 cells inside the centered 62% overlay square of the video. */
-function sampleCells(ctx: CanvasRenderingContext2D, toVideo: (cx: number, cy: number) => [number, number], S: number, ox: number, oy: number, vw: number, vh: number): RGB[] | null {
-  const cells: RGB[] = [];
-  const inner = 0.8;
-  const m = (S * (1 - inner)) / 2;
+/** Specular highlights are near-pure white and tell you nothing about the paint. */
+const GLARE_L = 96;
+/** Black plastic gaps (and crushed shadows) are far darker than any sticker. */
+const DARK_L = 13;
+
+/** Average a small square patch of pixels into one perceptual reading. */
+function patchLab(data: Uint8ClampedArray, w: number, h: number, cx: number, cy: number, radius: number): Lab | null {
+  let R = 0, G = 0, B = 0, n = 0;
+  for (let y = cy - radius; y <= cy + radius; y++) {
+    if (y < 0 || y >= h) continue;
+    for (let x = cx - radius; x <= cx + radius; x++) {
+      if (x < 0 || x >= w) continue;
+      const p = (y * w + x) * 4;
+      R += data[p]; G += data[p + 1]; B += data[p + 2]; n++;
+    }
+  }
+  if (n === 0) return null;
+  return rgbToLab({ r: R / n, g: G / n, b: B / n });
+}
+
+/**
+ * Sample the 9 stickers inside the overlay square.
+ *
+ * Each sticker is probed at 25 points across its middle 60% and reduced with a
+ * median after dropping glare and gap pixels. One pixel from the centre (the
+ * old approach) is enough for a perfectly lit, perfectly aligned photo — and
+ * hopeless for the rest, which is why red and orange used to swap.
+ */
+function sampleCells(img: ImageData, w: number, h: number): Lab[] | null {
+  const { data } = img;
+  const cellW = w / 3, cellH = h / 3;
+  const radius = Math.max(1, Math.min(4, Math.round(Math.min(cellW, cellH) * 0.04)));
+  const cells: Lab[] = [];
   for (let r = 0; r < 3; r++) {
     for (let c = 0; c < 3; c++) {
-      const cx = ox + m + ((c + 0.5) / 3) * S * inner;
-      const cy = oy + m + ((r + 0.5) / 3) * S * inner;
-      const [vx, vy] = toVideo(cx, cy);
-      const w = 3;
-      const x0 = Math.max(0, vx - w), y0 = Math.max(0, vy - w);
-      const ww = Math.min(vw - x0, w * 2 + 1), hh = Math.min(vh - y0, w * 2 + 1);
-      if (ww <= 0 || hh <= 0) return null;
-      const data = ctx.getImageData(x0, y0, ww, hh).data;
-      let R = 0, G = 0, B = 0, n = 0;
-      for (let i = 0; i < data.length; i += 4) { R += data[i]; G += data[i + 1]; B += data[i + 2]; n++; }
-      cells.push({ r: R / n, g: G / n, b: B / n });
+      const readings: Lab[] = [];
+      for (let py = 0; py < 5; py++) {
+        for (let px = 0; px < 5; px++) {
+          const fx = c * cellW + cellW * (0.2 + (0.6 * (px + 0.5)) / 5);
+          const fy = r * cellH + cellH * (0.2 + (0.6 * (py + 0.5)) / 5);
+          const lab = patchLab(data, w, h, Math.round(fx), Math.round(fy), radius);
+          if (lab) readings.push(lab);
+        }
+      }
+      if (readings.length === 0) return null;
+      const clean = readings.filter((l) => l[0] < GLARE_L && l[0] > DARK_L);
+      cells.push(medianLab(clean.length >= 6 ? clean : readings));
     }
   }
   return cells;
@@ -67,7 +98,15 @@ function analyzeFrame(video: HTMLVideoElement): FrameAnalysis | null {
   if (!ctx) return null;
   ctx.drawImage(video, 0, 0, vw, vh);
 
-  const cells = sampleCells(ctx, toVideo, S, ox, oy, vw, vh);
+  // One read of the overlay square at native resolution, then sample from it.
+  const [sx, sy] = toVideo(ox, oy);
+  const [ex, ey] = toVideo(ox + S, oy + S);
+  const x0 = Math.max(0, sx), y0 = Math.max(0, sy);
+  const x1 = Math.min(vw, ex), y1 = Math.min(vh, ey);
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 12 || h < 12) return null;
+  const img = ctx.getImageData(x0, y0, w, h);
+  const cells = sampleCells(img, w, h);
   if (!cells) return null;
 
   // Downscaled copy of just the overlay square for structural metrics
@@ -76,9 +115,7 @@ function analyzeFrame(video: HTMLVideoElement): FrameAnalysis | null {
   small.width = N; small.height = N;
   const sctx = small.getContext('2d', { willReadFrequently: true });
   if (!sctx) return null;
-  const [sx, sy] = toVideo(ox, oy);
-  const [ex, ey] = toVideo(ox + S, oy + S);
-  sctx.drawImage(canvas, sx, sy, ex - sx, ey - sy, 0, 0, N, N);
+  sctx.drawImage(canvas, x0, y0, w, h, 0, 0, N, N);
   const px = sctx.getImageData(0, 0, N, N).data;
   return { cells, metrics: computeOverlayMetrics(px, N) };
 }
@@ -105,8 +142,10 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
   const loadScannedState = useCubeStore((s) => s.loadScannedState);
   const [phase, setPhase] = useState<Phase>('intro');
   const [step, setStep] = useState(0);
-  const [samples, setSamples] = useState<(RGB[] | null)[]>(Array(6).fill(null));
+  const [samples, setSamples] = useState<(Lab[] | null)[]>(Array(6).fill(null));
   const [grid, setGrid] = useState<string[]>(emptyGrid());
+  const [highlight, setHighlight] = useState<Set<number>>(new Set());
+  const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rejects, setRejects] = useState(0);
   const [warming, setWarming] = useState(true);
@@ -178,10 +217,16 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
     }, 15000);
     setStarting(true);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
+      // Ask for as much resolution as the device will give: more pixels per
+      // sticker is the cheapest accuracy win there is. Continuous autofocus
+      // keeps the grid gaps sharp while the user moves between faces.
+      const video: MediaTrackConstraints = {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        advanced: [{ focusMode: 'continuous' }],
+      } as unknown as MediaTrackConstraints;
+      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
       if (settled) {
         stream.getTracks().forEach((t) => t.stop()); // late arrival after timeout
         return;
@@ -268,14 +313,30 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
         return next;
       });
       if (step === 5) {
-        // all faces captured -> classify everything against the six centers
+        // All faces captured → rebuild the cube. This fixes similar-color
+        // mixups and a face held at the wrong rotation in one pass.
         const all = samples.map((s, i) => (i === step ? cells : s));
         if (all.some((s) => !s)) {
           setError('A face is missing — please re-capture it.');
           return;
         }
-        setGrid(classifyAll(all as RGB[][]));
+        const scan = reconstructCube(all as Lab[][]);
+        setGrid(scan.colors);
+        setHighlight(new Set(scan.ambiguousFacelets));
+        const turned = scan.rotations.filter((r) => r !== 0).length;
+        setNote(
+          !scan.valid
+            ? 'These readings do not form a possible cube — the highlighted stickers are the likely mistakes.'
+            : scan.orientationAmbiguous
+              ? 'Could not tell how the cube was held — check the highlighted faces.'
+              : turned > 0
+                ? `Orientation corrected on ${turned} face${turned === 1 ? '' : 's'} — check the result below.`
+                : scan.ambiguous > 0
+                  ? `${scan.ambiguous} sticker${scan.ambiguous === 1 ? ' was' : 's were'} a close call — they are highlighted.`
+                  : null
+        );
         stopCamera();
+        setError(null);
         setPhase('review');
       } else {
         setStep(step + 1);
@@ -287,6 +348,8 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
 
   const cycleCell = (idx: number) => {
     if (idx % 9 === 4) return; // center locked (it defines the color scheme)
+    setError(null);
+    setHighlight(new Set());
     setGrid((prev) => {
       // No color may appear more than 9 times — full colors are skipped.
       const counts: Record<string, number> = {};
@@ -408,7 +471,7 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
               </button>
             )}
             <button
-              onClick={() => { stopCamera(); setGrid(emptyGrid()); setStep(0); setPhase('manual'); setError(null); }}
+              onClick={() => { stopCamera(); setGrid(emptyGrid()); setStep(0); setPhase('manual'); setError(null); setNote(null); setHighlight(new Set()); }}
               className="mt-2 w-full text-center text-[12px] text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
             >
               Wrongly rejected? Enter colors manually instead
@@ -449,11 +512,27 @@ export default function ScanCube({ onClose }: { onClose: () => void }) {
             <p className="mt-2 text-[13px] text-neutral-600 dark:text-neutral-300">
               Does this match your cube? Tap any square to fix its color.
             </p>
-            <NetPreview grid={grid} onCycle={cycleCell} onSwap={(f) => setGrid((prev) => swapColors(prev, f, 'R', 'L'))} />
+            {note && (
+              <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[12px] text-amber-800 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                {note}
+              </p>
+            )}
+            <NetPreview
+              grid={grid}
+              highlight={highlight}
+              onCycle={cycleCell}
+              onSwap={(f) => setGrid((prev) => swapColors(prev, f, 'R', 'L'))}
+            />
+            <button
+              onClick={() => { setHighlight(new Set()); setGrid((prev) => swapColorsEverywhere(prev, 'R', 'L')); }}
+              className="mt-2 h-8 w-full rounded-md border border-neutral-200 text-[12px] font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              ⇄ Red and orange look swapped? Swap them everywhere
+            </button>
             {error && <p className="mt-2 text-[12px] text-red-600 dark:text-red-400">{error}</p>}
             <div className="mt-2.5 flex gap-2">
               <button
-                onClick={() => { setSamples(Array(6).fill(null)); setStep(0); startCamera(); }}
+                onClick={() => { setSamples(Array(6).fill(null)); setStep(0); setNote(null); setHighlight(new Set()); startCamera(); }}
                 className="h-10 rounded-md border border-neutral-200 px-4 text-[13px] font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
                 ↺ Re-scan
@@ -498,7 +577,7 @@ function FaceEditor({ faceIdx, grid, onCycle }: { faceIdx: number; grid: string[
   );
 }
 
-function NetPreview({ grid, onCycle, onSwap }: { grid: string[]; onCycle: (idx: number) => void; onSwap: (faceIdx: number) => void }) {
+function NetPreview({ grid, onCycle, onSwap, highlight }: { grid: string[]; onCycle: (idx: number) => void; onSwap: (faceIdx: number) => void; highlight: Set<number> }) {
   // unfolded net: U on top; L F R B middle; D bottom
   const faces: Array<{ faceIdx: number; area: string }> = [
     { faceIdx: 0, area: 'u' },
@@ -522,8 +601,8 @@ function NetPreview({ grid, onCycle, onSwap }: { grid: string[]; onCycle: (idx: 
                 <button
                   key={i}
                   onClick={() => onCycle(idx)}
-                  aria-label={`${FACE_NAMES[SCAN_FACES[faceIdx]]} sticker ${i + 1}, ${letter || 'blank'}. Tap to change.`}
-                  className="aspect-square rounded-[3px] border border-black/10"
+                  aria-label={`${FACE_NAMES[SCAN_FACES[faceIdx]]} sticker ${i + 1}, ${letter || 'blank'}.${highlight.has(idx) ? ' Low confidence reading.' : ''} Tap to change.`}
+                  className={`aspect-square rounded-[3px] border border-black/10 ${highlight.has(idx) ? 'ring-2 ring-inset ring-amber-500' : ''}`}
                   style={{ background: letter ? FACE_COLORS[letter as Face] : '#e5e5e5' }}
                 />
               );

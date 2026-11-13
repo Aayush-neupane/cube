@@ -205,8 +205,14 @@ export default function CubeCanvas() {
       });
       plasticGeo.dispose();
       stickerGeo.dispose();
+      // The sticker materials are shared through a module-level cache. Clear it
+      // on unmount so a remount (StrictMode, HMR) never reuses disposed ones.
+      for (const m of stickerMatCache.values()) m.dispose();
+      stickerMatCache.clear();
       renderer.dispose();
       renderer.domElement.remove();
+      sharedRef.current = null;
+      cubiesRef.current = [];
       sceneRef.current = null;
       rendererRef.current = null;
     };

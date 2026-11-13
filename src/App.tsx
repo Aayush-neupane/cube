@@ -85,29 +85,41 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      if (!target) return;
+      const tag = target.tagName;
       const k = e.key;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
 
-      if ((e.metaKey || e.ctrlKey) && k.toLowerCase() === 'z') {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
+      if (e.metaKey || e.ctrlKey) {
+        if (typing) return;
+        if (k.toLowerCase() === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) redo();
+          else undo();
+        } else if (k.toLowerCase() === 'y') {
+          e.preventDefault();
+          redo();
+        }
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && k.toLowerCase() === 'y') {
-        e.preventDefault();
-        redo();
-        return;
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.altKey || typing) return;
+
+      // The scanner is modal: keys pressed while it is open belong to it, not
+      // to the cube hiding behind the dialog.
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+
+      // Space and Enter must activate the control the user tabbed to.
+      const controlFocused =
+        tag === 'BUTTON' || tag === 'A' || tag === 'SUMMARY' || tag === 'SELECT' || target.isContentEditable;
 
       if (k === ' ' || k === 'Spacebar') {
+        if (controlFocused) return;
         e.preventDefault();
         doScramble(20);
         return;
       }
       if (k === 'Enter') {
-        if (target && target.tagName === 'BUTTON') return;
+        if (controlFocused) return;
         e.preventDefault();
         doReset();
         return;
@@ -122,7 +134,6 @@ export default function App() {
         e.preventDefault();
         const move = e.shiftKey ? `${upper}'` : upper;
         useCubeStore.getState().enqueueMove(move);
-        return;
       }
     };
     window.addEventListener('keydown', onKey);

@@ -35,12 +35,6 @@ export default function ScrambleBar() {
           Scramble
         </button>
         <button
-          onClick={() => doScramble(20)}
-          className="h-8 rounded-md border border-neutral-200 px-3 text-[13px] font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"
-        >
-          New
-        </button>
-        <button
           onClick={copy}
           disabled={scramble.length === 0}
           className="h-8 rounded-md border border-neutral-200 px-3 text-[13px] font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-40 dark:border-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-800"

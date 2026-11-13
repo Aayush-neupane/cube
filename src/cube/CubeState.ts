@@ -1,6 +1,8 @@
 import { Cubie, Sticker, Vec3, vecKey, parseMove, Axis } from './types';
 import { rotateVec } from './types';
 
+const FACE_DIRS: Vec3[] = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]];
+
 function buildSolvedCubies(): Cubie[] {
   const cubies: Cubie[] = [];
   const colorOf = (dir: Vec3): Sticker['color'] => {
@@ -83,15 +85,22 @@ export class CubeState {
     }
   }
 
+  /**
+   * Solved means every face shows a single color. Whole-cube rotations (X/Y/Z)
+   * leave a solved cube solved, so positions are deliberately not compared to
+   * home — otherwise rotating the view by hand would break the timer and the
+   * solve guide's solved state.
+   */
   isSolved(): boolean {
-    for (const cb of this.cubies) {
-      if (cb.pos[0] !== cb.home[0] || cb.pos[1] !== cb.home[1] || cb.pos[2] !== cb.home[2]) {
-        return false;
-      }
-      for (const s of cb.stickers) {
-        if (s.dir[0] !== s.homeDir[0] || s.dir[1] !== s.homeDir[1] || s.dir[2] !== s.homeDir[2]) {
-          return false;
-        }
+    for (const dir of FACE_DIRS) {
+      let faceColor: Sticker['color'] | null = null;
+      for (const cb of this.cubies) {
+        const s = cb.stickers.find(
+          (st) => st.dir[0] === dir[0] && st.dir[1] === dir[1] && st.dir[2] === dir[2]
+        );
+        if (!s) continue;
+        if (faceColor === null) faceColor = s.color;
+        else if (faceColor !== s.color) return false;
       }
     }
     return true;
